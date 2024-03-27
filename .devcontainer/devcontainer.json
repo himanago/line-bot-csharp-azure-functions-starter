@@ -1,0 +1,33 @@
+{
+    "name": "LINE OpenAPI C# Azure Functions Starter",
+    "image": "mcr.microsoft.com/devcontainers/javascript-node:1-18-bullseye",
+    "features": {
+        "ghcr.io/devcontainers/features/dotnet:2": {
+            "version": "6.0"
+        },
+        "ghcr.io/devcontainers/features/java:1": {
+            "installMaven": true,
+            "version": "latest",
+            "jdkDistro": "ms",
+            "gradleVersion": "latest",
+            "mavenVersion": "latest",
+            "antVersion": "latest"
+        },
+        "ghcr.io/devcontainers/features/azure-cli:1.2.1": {},
+        "ghcr.io/azure/azure-dev/azd:latest": {}
+    },
+    "postCreateCommand": "npm install @openapitools/openapi-generator-cli -g && npm install -g azure-functions-core-tools@4 && chmod +x generate-sdk.sh && ./generate-sdk.sh",
+    "customizations": {
+        "codespaces": {
+            "openFiles": ["LineBotFunctions/WebhookEndpoint.cs"]
+        },
+        "vscode": {
+            "extensions": [
+                "ms-azuretools.azure-dev",
+                "ms-azuretools.vscode-bicep",
+                "ms-azuretools.vscode-azurefunctions",
+                "ms-dotnettools.csdevkit"
+            ]
+        }
+    }
+}
