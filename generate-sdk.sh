@@ -11,3 +11,10 @@ find ./sdk/src/LineOpenApi.Webhook/Model/ -type f | while read file; do
         sed -i '/\[JsonConverter(typeof(JsonSubtypes), "Type")\]/d' "$file"
     fi
 done
+
+find ./sdk/src/LineOpenApi.MessagingApi/Model/ -type f | while read file; do
+    if grep -q " : Message, IEquatable<" "$file"; then
+        echo "Replacing message type: $file"
+        sed -i 's/\(string type = @"\)\(.*\)Message"/\1\L\2"/' "$file"
+    fi
+done

@@ -3,7 +3,7 @@
     "image": "mcr.microsoft.com/devcontainers/javascript-node:1-18-bullseye",
     "features": {
         "ghcr.io/devcontainers/features/dotnet:2": {
-            "version": "6.0"
+            "version": "8.0"
         },
         "ghcr.io/devcontainers/features/java:1": {
             "installMaven": true,

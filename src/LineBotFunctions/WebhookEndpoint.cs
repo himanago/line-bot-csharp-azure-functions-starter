@@ -42,9 +42,6 @@ public class WebhookEndpoint
                     var replyMessageRequest = new ReplyMessageRequest(messageEvent.ReplyToken, new List<Message>
                     {
                         new TextMessage(textMessageContent.Text)
-                        {
-                            Type = "text"
-                        }
                     });
                     await Api.ReplyMessageAsync(replyMessageRequest);
                 }
