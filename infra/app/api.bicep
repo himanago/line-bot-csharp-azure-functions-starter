@@ -29,6 +29,10 @@ var functionAppCoreAppSettings = [
     value: 'dotnet'
   }
   {
+    name: 'FUNCTIONS_INPROC_NET8_ENABLED'
+    value: '1'
+  }
+  {
     name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
     value: applicationInsights.properties.ConnectionString
   }

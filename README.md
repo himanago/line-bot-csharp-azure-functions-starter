@@ -4,7 +4,7 @@ GitHub Codespaces で開くだけで、最新の LINE OpenAPI に従った SDK �
 
 ## 使用技術
 
-- C# (.NET 6 in-process)
+- C# (.NET 8 in-process)
 - Azure Functions
 - Azure Key Vault
 - Azure Application Insights
