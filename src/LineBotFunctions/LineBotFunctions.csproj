@@ -2,12 +2,23 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <AzureFunctionsVersion>v4</AzureFunctionsVersion>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
     <UserSecretsId>97b1e1c3-521b-4fe3-bf6b-ed7006aaacd9</UserSecretsId>
+    <!-- Azure Functions の .NET 8 isolated に必要な設定 -->
+    <_FunctionsSkipCleanOutput>true</_FunctionsSkipCleanOutput>
+    <PublishProfile>FolderProfile</PublishProfile>
+    <!-- Flex Consumption plan用の最適化 -->
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="JsonSubTypes" Version="2.0.1" />
-    <PackageReference Include="Microsoft.Azure.Functions.Extensions" Version="1.1.0" />
-    <PackageReference Include="Microsoft.NET.Sdk.Functions" Version="4.2.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="1.21.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="1.17.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http" Version="3.1.0" />
+    <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="2.22.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.ApplicationInsights" Version="1.2.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <ProjectReference Include="../../sdk/src/LineOpenApi.MessagingApi/LineOpenApi.MessagingApi.csproj" />
     <ProjectReference Include="../../sdk/src/LineOpenApi.Webhook/LineOpenApi.Webhook.csproj" />
@@ -21,4 +32,14 @@
       <CopyToPublishDirectory>Never</CopyToPublishDirectory>
     </None>
   </ItemGroup>
+  
+  <!-- Azure Functions デプロイ用の追加設定 -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="echo Post build event executed" />
+  </Target>
+  
+  <Target Name="_GenerateFunctionMetadata" AfterTargets="Publish">
+    <Message Importance="high" Text="Function metadata generation completed" />
+  </Target>
+
 </Project>
