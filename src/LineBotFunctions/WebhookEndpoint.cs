@@ -1,58 +1,55 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+using System.Text.Json;
 using LineOpenApi.MessagingApi.Api;
 using LineOpenApi.MessagingApi.Model;
 using LineOpenApi.Webhook.Model;
 using System.Collections.Generic;
+using System.Net;
 
 namespace LineBotFunctions;
 public class WebhookEndpoint
 {
-    private IMessagingApiApiAsync Api { get; }
+    private readonly WebhookHandler _handler;
 
-    public WebhookEndpoint(IMessagingApiApiAsync api)
+    public WebhookEndpoint(WebhookHandler handler)
     {
-        Api = api;
+        _handler = handler;
     }
 
-    [FunctionName("WebhookEndpoint")]
-    public async Task<IActionResult> Run(
-        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req,
-        ILogger log)
+    [Function("WebhookEndpoint")]
+    public async Task<HttpResponseData> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequestData req,
+        FunctionContext executionContext)
     {
-        log.LogInformation("C# webhook endpoint function processed a request.");
+        var logger = executionContext.GetLogger("WebhookEndpoint");
+        logger.LogInformation("C# webhook endpoint function processed a request.");
 
         try
         {
             var body = await new StreamReader(req.Body).ReadToEndAsync();
-            var callbackRequest = JsonConvert.DeserializeObject<CallbackRequest>(body);
+            var callbackRequest = JsonSerializer.Deserialize<CallbackRequest>(body);
 
-            foreach (var ev in callbackRequest.Events)
+            if (callbackRequest?.Events != null)
             {
-                // echo when receive text message
-                if (ev is MessageEvent messageEvent && messageEvent.Message is TextMessageContent textMessageContent)
+                foreach (var ev in callbackRequest.Events)
                 {
-                    var replyMessageRequest = new ReplyMessageRequest(messageEvent.ReplyToken, new List<Message>
-                    {
-                        new TextMessage(textMessageContent.Text)
-                    });
-                    await Api.ReplyMessageAsync(replyMessageRequest);
+                    await _handler.HandleEventAsync(ev);
                 }
             }
         }
         catch (Exception e)
         {
-            log.LogError($"Error: {e.Message}");
-            log.LogError($"Error: {e.StackTrace}");
+            logger.LogError($"Error: {e.Message}");
+            logger.LogError($"Error: {e.StackTrace}");
         }
         
-        return new OkObjectResult("OK");
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        response.WriteString("OK");
+        return response;
     }
 }

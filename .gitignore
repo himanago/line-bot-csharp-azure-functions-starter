@@ -1,1 +1,4 @@
 .azure
+sdk
+tools/WebhookHandlerGenerator/bin
+tools/WebhookHandlerGenerator/obj
