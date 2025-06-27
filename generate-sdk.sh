@@ -18,3 +18,7 @@ find ./sdk/src/LineOpenApi.MessagingApi/Model/ -type f | while read file; do
         sed -i 's/\(string type = @"\)\(.*\)Message"/\1\L\2"/' "$file"
     fi
 done
+
+# WebhookHandlerの生成
+echo "Generating WebhookHandler..."
+dotnet run --project ./tools/WebhookHandlerGenerator -- --webhook-spec https://raw.githubusercontent.com/line/line-openapi/main/webhook.yml --output ./sdk/src/LineOpenApi.Webhook/

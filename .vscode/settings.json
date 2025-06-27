@@ -1,5 +1,5 @@
 {
-    "azureFunctions.deploySubpath": "LineBotFunctions/bin/Release/net6.0/publish",
+    "azureFunctions.deploySubpath": "src/LineBotFunctions",
     "azureFunctions.projectLanguage": "C#",
     "azureFunctions.projectRuntime": "~4",
     "debug.internalConsoleOptions": "neverOpen",
