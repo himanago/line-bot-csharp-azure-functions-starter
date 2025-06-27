@@ -26,10 +26,10 @@ var functionAppCoreAppSettings = [
   }
   {
     name: 'FUNCTIONS_WORKER_RUNTIME'
-    value: 'dotnet'
+    value: 'dotnet-isolated'
   }
   {
-    name: 'FUNCTIONS_INPROC_NET8_ENABLED'
+    name: 'WEBSITE_USE_PLACEHOLDER_DOTNETISOLATED'
     value: '1'
   }
   {
@@ -41,7 +41,7 @@ var functionAppCoreAppSettings = [
     value: keyVault.properties.vaultUri
   }
   {
-    name: 'LineBotSettings:ChannelAccessToken'
+    name: 'CHANNEL_ACCESS_TOKEN'
     value: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=${lineChannelAccessTokenSecretName})'
   }
 ]
