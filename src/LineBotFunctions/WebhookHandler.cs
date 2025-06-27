@@ -14,9 +14,9 @@ namespace LineBotFunctions
     public class WebhookHandler : WebhookHandlerBase
     {
         private readonly IMessagingApiApiAsync _api;
-        private readonly ILogger _logger;
+        private readonly ILogger<WebhookHandler> _logger;
 
-        public WebhookHandler(IMessagingApiApiAsync api, ILogger logger)
+        public WebhookHandler(IMessagingApiApiAsync api, ILogger<WebhookHandler> logger)
         {
             _api = api;
             _logger = logger;
@@ -67,12 +67,12 @@ namespace LineBotFunctions
         protected override async Task HandlePostbackEventAsync(PostbackEvent ev)
         {
             _logger.LogInformation($"Received postback: {ev.Postback.Data}");
-            
+
             var replyMessageRequest = new ReplyMessageRequest(ev.ReplyToken, new List<Message>
             {
                 new TextMessage($"ポストバックを受信しました: {ev.Postback.Data}")
             });
-            
+
             await _api.ReplyMessageAsync(replyMessageRequest);
         }
     }
