@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using LineOpenApi.MessagingApi.Api;
 using LineOpenApi.MessagingApi.Client;
 using LineBotFunctions;
+using Microsoft.DurableTask.Client;
 
 var host = new HostBuilder()
     .ConfigureFunctionsWorkerDefaults()

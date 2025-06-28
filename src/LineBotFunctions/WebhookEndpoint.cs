@@ -4,12 +4,13 @@ using System.Threading.Tasks;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
+using Newtonsoft.Json;
 using LineOpenApi.MessagingApi.Api;
 using LineOpenApi.MessagingApi.Model;
 using LineOpenApi.Webhook.Model;
 using System.Collections.Generic;
 using System.Net;
+using Microsoft.DurableTask.Client;
 
 namespace LineBotFunctions;
 public class WebhookEndpoint
@@ -24,6 +25,7 @@ public class WebhookEndpoint
     [Function("WebhookEndpoint")]
     public async Task<HttpResponseData> Run(
         [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequestData req,
+        [DurableClient] DurableTaskClient durableClient,
         FunctionContext executionContext)
     {
         var logger = executionContext.GetLogger("WebhookEndpoint");
@@ -32,20 +34,32 @@ public class WebhookEndpoint
         try
         {
             var body = await new StreamReader(req.Body).ReadToEndAsync();
-            var callbackRequest = JsonSerializer.Deserialize<CallbackRequest>(body);
+            logger.LogInformation($"Received webhook body: {body}");
 
+            var callbackRequest = JsonConvert.DeserializeObject<CallbackRequest>(body);
             if (callbackRequest?.Events != null)
             {
+                logger.LogInformation($"Processing {callbackRequest.Events.Count} events");
                 foreach (var ev in callbackRequest.Events)
                 {
-                    await _handler.HandleEventAsync(ev);
+                    // DurableTaskClientを使用してイベントを処理
+                    await _handler.HandleEventWithDurableAsync(ev, durableClient);
                 }
             }
+            else
+            {
+                logger.LogWarning("No events found in callback request");
+            }
+        }
+        catch (JsonException jsonEx)
+        {
+            logger.LogError($"JSON deserialization error: {jsonEx.Message}");
+            logger.LogError($"Stack trace: {jsonEx.StackTrace}");
         }
         catch (Exception e)
         {
-            logger.LogError($"Error: {e.Message}");
-            logger.LogError($"Error: {e.StackTrace}");
+            logger.LogError($"General error: {e.Message}");
+            logger.LogError($"Stack trace: {e.StackTrace}");
         }
         
         var response = req.CreateResponse(HttpStatusCode.OK);

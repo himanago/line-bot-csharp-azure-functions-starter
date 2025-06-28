@@ -9,12 +9,21 @@
     },
     "logging": {
         "logLevel": {
-            "default": "Information"
+            "default": "Information",
+            "DurableTask.AzureStorage": "Warning",
+            "DurableTask.Core": "Warning"
         },
         "applicationInsights": {
             "samplingSettings": {
                 "isEnabled": true
             }
+        }
+    },
+    "durableTask": {
+        "hubName": "LineBotTaskHub",
+        "storageProvider": {
+            "type": "AzureStorage",
+            "connectionStringName": "AzureWebJobsStorage"
         }
     }
 }
