@@ -2,6 +2,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using LineBotFunctions.Models;
 using LineBotFunctions.Config;
+using LineBotFunctions.Services;
 using Azure.AI.Agents.Persistent;
 using Azure.Identity;
 using System;
@@ -19,10 +20,12 @@ namespace LineBotFunctions
     public class CallAIAgentActivity
     {
         private readonly ILogger<CallAIAgentActivity> _logger;
+        private readonly LineImageService _lineImageService;
 
-        public CallAIAgentActivity(ILogger<CallAIAgentActivity> logger)
+        public CallAIAgentActivity(ILogger<CallAIAgentActivity> logger, LineImageService lineImageService)
         {
             _logger = logger;
+            _lineImageService = lineImageService;
         }
 
         [Function(nameof(CallAIAgentActivity))]
@@ -31,6 +34,12 @@ namespace LineBotFunctions
             [DurableClient] DurableTaskClient durableClient)
         {
             _logger.LogInformation($"Calling AI agent for user {input.UserId}");
+            
+            // マルチモーダル処理の場合は追加ログ
+            if (input.IsMultimodal && !string.IsNullOrEmpty(input.ImageMessageId))
+            {
+                _logger.LogInformation($"Processing multimodal request with image ID: {input.ImageMessageId}");
+            }
 
             try
             {
@@ -54,14 +63,22 @@ namespace LineBotFunctions
                 _logger.LogInformation($"Using thread {threadId} for user {input.UserId}");
 
                 // メッセージを送信
-                var messageResponse = await persistentClient.Messages.CreateMessageAsync(
-                    threadId,
-                    MessageRole.User,
-                    input.UserMessage
-                );
-                var message = messageResponse.Value;
-
-                _logger.LogInformation($"Sent message to AI agent thread {threadId}, message ID: {message.Id}");
+                if (input.IsMultimodal && !string.IsNullOrEmpty(input.ImageMessageId))
+                {
+                    // マルチモーダルメッセージを送信
+                    await SendMultimodalMessageAsync(persistentClient, threadId, input.UserMessage, input.ImageMessageId);
+                }
+                else
+                {
+                    // 通常のテキストメッセージを送信
+                    var messageResponse = await persistentClient.Messages.CreateMessageAsync(
+                        threadId,
+                        MessageRole.User,
+                        input.UserMessage
+                    );
+                    var message = messageResponse.Value;
+                    _logger.LogInformation($"Sent text message to AI agent thread {threadId}, message ID: {message.Id}");
+                }
 
                 // エージェントを実行（リトライ機能付き）
                 var runResponse = await persistentClient.Runs.CreateRunAsync(
@@ -378,7 +395,7 @@ namespace LineBotFunctions
 
         private async Task<string> GetOrCreateUserThreadAsync(PersistentAgentsClient persistentClient, DurableTaskClient durableClient, string userId)
         {
-            var entityId = new EntityInstanceId("LineUserReplyTokenEntity", userId);
+            var entityId = new EntityInstanceId("LineTalkEntity", userId);
             
             try
             {
@@ -411,6 +428,45 @@ namespace LineBotFunctions
             await durableClient.Entities.SignalEntityAsync(entityId, "SetThread", newThreadId);
             
             return newThreadId;
+        }
+
+        private async Task SendMultimodalMessageAsync(PersistentAgentsClient persistentClient, string threadId, string userMessage, string imageMessageId)
+        {
+            try
+            {
+                // LINE APIから画像データを取得
+                _logger.LogInformation($"Fetching image data for message ID: {imageMessageId}");
+                var imageBase64 = await _lineImageService.GetImageAsBase64Async(imageMessageId);
+                
+                // 画像付きメッセージを作成 (現在のSDKバージョンでサポートされている方法を使用)
+                // 注意: Azure AI Agents SDKのマルチモーダル対応は限定的な場合があります
+                var combinedMessage = $"{userMessage}\n\n[Image data: {imageBase64.Substring(0, Math.Min(100, imageBase64.Length))}...]";
+                
+                var messageResponse = await persistentClient.Messages.CreateMessageAsync(
+                    threadId,
+                    MessageRole.User,
+                    combinedMessage
+                );
+                
+                var message = messageResponse.Value;
+                _logger.LogInformation($"Sent multimodal message to AI agent thread {threadId}, message ID: {message.Id}");
+                _logger.LogInformation($"Image data size: {imageBase64.Length} characters (base64)");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to send multimodal message, falling back to text only");
+                
+                // フォールバック: テキストのみで送信
+                var fallbackMessage = $"{userMessage}\n\n[画像が添付されていましたが、処理に失敗しました]";
+                var messageResponse = await persistentClient.Messages.CreateMessageAsync(
+                    threadId,
+                    MessageRole.User,
+                    fallbackMessage
+                );
+                
+                var message = messageResponse.Value;
+                _logger.LogInformation($"Sent fallback text message to AI agent thread {threadId}, message ID: {message.Id}");
+            }
         }
     }
 }

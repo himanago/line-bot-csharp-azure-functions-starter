@@ -24,6 +24,22 @@ namespace LineBotFunctions
             _httpClient = httpClient;
         }
 
+        private string CleanJsonResponse(string jsonResponse)
+        {
+            if (string.IsNullOrEmpty(jsonResponse))
+                return jsonResponse;
+
+            // ```json と ``` を除去
+            var cleaned = jsonResponse
+                .Replace("```json", "")
+                .Replace("```", "")
+                .Trim();
+
+            _logger.LogInformation($"Cleaned JSON response: Original length={jsonResponse.Length}, Cleaned length={cleaned.Length}");
+            
+            return cleaned;
+        }
+
         [Function(nameof(SendLineReplyActivity))]
         public async Task<LineReplyResult> RunActivity(
             [ActivityTrigger] LineReplyInput input,
@@ -31,11 +47,12 @@ namespace LineBotFunctions
         {
             _logger.LogInformation($"Sending LINE reply for user {input.UserId}");
             
-            // JSONを解析
+            // Markdownコードブロックを除去してからJSONを解析
+            var cleanedJson = CleanJsonResponse(input.MessagesJson);
             JArray messagesJsonArray;
             try 
             {
-                messagesJsonArray = JArray.Parse(input.MessagesJson);
+                messagesJsonArray = JArray.Parse(cleanedJson);
                 _logger.LogInformation($"Parsed {messagesJsonArray.Count} messages from JSON");
                 
                 // メッセージの詳細をログ出力
@@ -60,7 +77,7 @@ namespace LineBotFunctions
                 };
             }
 
-            var entityId = new EntityInstanceId("LineUserReplyTokenEntity", input.UserId);
+            var entityId = new EntityInstanceId("LineTalkEntity", input.UserId);
 
             try
             {

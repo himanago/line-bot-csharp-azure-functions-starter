@@ -3,6 +3,7 @@ using Microsoft.DurableTask.Entities;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Threading.Tasks;
+using LineBotFunctions.Models;
 
 namespace LineBotFunctions
 {
@@ -12,13 +13,15 @@ namespace LineBotFunctions
         public string ThreadId { get; set; } = string.Empty;
         public DateTime ThreadCreatedAt { get; set; }
         public DateTime ThreadLastUsedAt { get; set; }
+        // 画像待ち状態管理
+        public ImageWaitingState? ImageWaiting { get; set; }
     }
 
-    public class LineUserReplyTokenEntity : TaskEntity<ReplyTokenState>
+    public class LineTalkEntity : TaskEntity<ReplyTokenState>
     {
         private readonly ILogger logger;
 
-        public LineUserReplyTokenEntity(ILogger<LineUserReplyTokenEntity> logger)
+        public LineTalkEntity(ILogger<LineTalkEntity> logger)
         {
             this.logger = logger;
         }
@@ -90,8 +93,39 @@ namespace LineBotFunctions
             }
         }
 
-        [Function(nameof(LineUserReplyTokenEntity))]
+        // 画像待ち状態管理メソッド
+        public void SetImageWaiting(string imageMessageId)
+        {
+            if (this.State == null)
+            {
+                this.State = new ReplyTokenState();
+            }
+            
+            this.State.ImageWaiting = new ImageWaitingState
+            {
+                ImageMessageId = imageMessageId,
+                ImageReceivedAt = DateTime.UtcNow,
+                IsWaitingForText = true
+            };
+            logger.LogInformation($"Set image waiting state for message ID: {imageMessageId}");
+        }
+
+        public Task<ImageWaitingState?> GetImageWaiting()
+        {
+            return Task.FromResult(this.State?.ImageWaiting);
+        }
+
+        public void ClearImageWaiting()
+        {
+            if (this.State != null)
+            {
+                logger.LogInformation($"Clearing image waiting state");
+                this.State.ImageWaiting = null;
+            }
+        }
+
+        [Function(nameof(LineTalkEntity))]
         public static Task Run([EntityTrigger] TaskEntityDispatcher dispatcher)
-            => dispatcher.DispatchAsync<LineUserReplyTokenEntity>();
+            => dispatcher.DispatchAsync<LineTalkEntity>();
     }
 }

@@ -34,9 +34,14 @@ namespace LineBotFunctions
                 var agentInput = new AIAgentInput
                 {
                     UserMessage = input.UserMessage,
-                    UserId = input.UserId
+                    UserId = input.UserId,
+                    ImageMessageId = input.ImageMessageId,
+                    IsMultimodal = input.IsMultimodal
                 };
 
+                // マルチモーダル処理の場合は、エンティティから画像情報を取得して設定
+                // (将来的にマルチモーダル対応時に使用)
+                
                 var agentResponse = await context.CallActivityAsync<AIAgentResponse>("CallAIAgentActivity", agentInput);
                 _logger.LogInformation($"AI Agent response received: Status={agentResponse?.Status}");
 

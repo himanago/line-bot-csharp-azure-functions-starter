@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using LineOpenApi.MessagingApi.Api;
 using LineOpenApi.MessagingApi.Client;
 using LineBotFunctions;
+using LineBotFunctions.Services;
 using Microsoft.DurableTask.Client;
 
 var host = new HostBuilder()
@@ -39,6 +40,9 @@ var host = new HostBuilder()
 
         // HttpClient の追加（SendLineReplyActivity用）
         services.AddHttpClient();
+
+        // LineImageServiceの追加
+        services.AddScoped<LineImageService>();
 
         services.AddLogging();
     })
