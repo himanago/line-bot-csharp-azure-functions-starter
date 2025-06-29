@@ -11,6 +11,8 @@ using System.Linq;
 using LineOpenApi.MessagingApi.Model;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Microsoft.DurableTask.Client;
+using Microsoft.DurableTask.Entities;
 
 namespace LineBotFunctions
 {
@@ -24,7 +26,9 @@ namespace LineBotFunctions
         }
 
         [Function(nameof(CallAIAgentActivity))]
-        public async Task<AIAgentResponse> RunActivity([ActivityTrigger] AIAgentInput input)
+        public async Task<AIAgentResponse> RunActivity(
+            [ActivityTrigger] AIAgentInput input,
+            [DurableClient] DurableTaskClient durableClient)
         {
             _logger.LogInformation($"Calling AI agent for user {input.UserId}");
 
@@ -45,41 +49,40 @@ namespace LineBotFunctions
                 var agent = agentResponse.Value;
                 _logger.LogInformation($"Using existing agent, agent ID: {agent.Id}");
 
-                // 新しい会話スレッドを作成
-                var threadResponse = await persistentClient.Threads.CreateThreadAsync();
-                var thread = threadResponse.Value;
-                _logger.LogInformation($"Created thread, thread ID: {thread.Id}");
+                // ユーザー専用のスレッドIDを取得または作成
+                string threadId = await GetOrCreateUserThreadAsync(persistentClient, durableClient, input.UserId);
+                _logger.LogInformation($"Using thread {threadId} for user {input.UserId}");
 
                 // メッセージを送信
                 var messageResponse = await persistentClient.Messages.CreateMessageAsync(
-                    thread.Id,
+                    threadId,
                     MessageRole.User,
                     input.UserMessage
                 );
                 var message = messageResponse.Value;
 
-                _logger.LogInformation($"Sent message to AI agent thread {thread.Id}, message ID: {message.Id}");
+                _logger.LogInformation($"Sent message to AI agent thread {threadId}, message ID: {message.Id}");
 
                 // エージェントを実行
                 var runResponse = await persistentClient.Runs.CreateRunAsync(
-                    thread.Id,
+                    threadId,
                     assistantId: agent.Id
                 );
 
                 _logger.LogInformation($"Started AI agent run, run ID: {runResponse.Value.Id}");
 
                 // 実行完了まで待機（ポーリング）
-                var completedRun = await WaitForRunCompletionAsync(persistentClient, thread.Id, runResponse.Value.Id);
+                var completedRun = await WaitForRunCompletionAsync(persistentClient, threadId, runResponse.Value.Id);
                 _logger.LogInformation($"AI agent run completed, run ID: {completedRun.Id}, status: {completedRun.Status}");
 
                 if (completedRun.Status == RunStatus.Completed)
                 {
                     // メッセージを取得
                     var messagesAsyncEnumerable = persistentClient.Messages.GetMessagesAsync(
-                        threadId: thread.Id, 
-                        order: ListSortOrder.Ascending);
+                        threadId: threadId, 
+                        order: ListSortOrder.Descending);
 
-                    _logger.LogInformation($"Retrieved messages from thread {thread.Id}");
+                    _logger.LogInformation($"Retrieved messages from thread {threadId}");
 
                     // エージェントの最新応答を取得してJSON解析
                     await foreach (var msg in messagesAsyncEnumerable)
@@ -302,6 +305,43 @@ namespace LineBotFunctions
             }
 
             throw new TimeoutException($"AI agent run {runId} did not complete within {maxWaitTime.TotalMinutes} minutes");
+        }
+
+        private async Task<string> GetOrCreateUserThreadAsync(PersistentAgentsClient persistentClient, DurableTaskClient durableClient, string userId)
+        {
+            var entityId = new EntityInstanceId("LineUserReplyTokenEntity", userId);
+            
+            try
+            {
+                // 既存のスレッドIDを取得
+                var entity = await durableClient.Entities.GetEntityAsync(entityId);
+                var tokenState = entity?.State?.ReadAs<ReplyTokenState>();
+                
+                if (tokenState != null && !string.IsNullOrEmpty(tokenState.ThreadId))
+                {
+                    _logger.LogInformation($"Found existing thread {tokenState.ThreadId} for user {userId}");
+                    
+                    // 最終使用日時を更新
+                    await durableClient.Entities.SignalEntityAsync(entityId, "UpdateThreadLastUsed");
+                    
+                    return tokenState.ThreadId;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"Could not retrieve existing thread for user {userId}, creating new one");
+            }
+
+            // 新しいスレッドを作成
+            var threadResponse = await persistentClient.Threads.CreateThreadAsync();
+            var newThreadId = threadResponse.Value.Id;
+            
+            _logger.LogInformation($"Created new thread {newThreadId} for user {userId}");
+            
+            // エンティティにスレッドIDを保存
+            await durableClient.Entities.SignalEntityAsync(entityId, "SetThread", newThreadId);
+            
+            return newThreadId;
         }
     }
 }
