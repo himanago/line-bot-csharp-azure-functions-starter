@@ -6,9 +6,11 @@ using Azure.AI.Agents.Persistent;
 using Azure.Identity;
 using System;
 using System.Threading.Tasks;
-using System.Text.Json;
 using System.Collections.Generic;
 using System.Linq;
+using LineOpenApi.MessagingApi.Model;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace LineBotFunctions
 {
@@ -103,55 +105,111 @@ namespace LineBotFunctions
 
                                 try
                                 {
-                                    // JSONとして解析を試行
-                                    using var document = JsonDocument.Parse(contentText.Trim());
-                                    var rootElement = document.RootElement;
+                                    // JSONとして解析を試行（Newtonsoft.Jsonを使用）
+                                    var jsonObject = JToken.Parse(contentText.Trim());
 
                                     // まず配列かどうかをチェック
-                                    if (rootElement.ValueKind == JsonValueKind.Array)
+                                    if (jsonObject.Type == JTokenType.Array)
                                     {
                                         // 直接メッセージ配列の場合
-                                        var lineMessages = JsonSerializer.Deserialize<List<LineMessage>>(contentText);
+                                        _logger.LogInformation("Processing direct JSON array response");
+                                        
+                                        // SDKのデシリアライゼーション問題を回避し、JSONを文字列として保持
+                                        var messagesJsonArray = (JArray)jsonObject;
+                                        _logger.LogInformation($"Storing {messagesJsonArray.Count} messages as JSON string");
+                                        
+                                        // メッセージの詳細をログ出力
+                                        for (int i = 0; i < messagesJsonArray.Count; i++)
+                                        {
+                                            var msgJson = messagesJsonArray[i];
+                                            var msgType = msgJson["type"]?.ToString() ?? "unknown";
+                                            var msgText = msgJson["text"]?.ToString() ?? "";
+                                            _logger.LogInformation($"  Message {i}: Type={msgType}, Text={msgText}");
+                                        }
+                                        
                                         return new AIAgentResponse
                                         {
                                             Status = "success",
-                                            Messages = lineMessages ?? new List<LineMessage>()
+                                            MessagesJson = messagesJsonArray.ToString()
                                         };
                                     }
-                                    else if (rootElement.TryGetProperty("messages", out var messagesProperty))
+                                    else if (jsonObject.Type == JTokenType.Object && jsonObject["messages"] != null)
                                     {
-                                        var lineMessages = JsonSerializer.Deserialize<List<LineMessage>>(messagesProperty.GetRawText());
+                                        _logger.LogInformation("Processing JSON object with 'messages' property");
+                                        var messagesJsonArray = (JArray)jsonObject["messages"];
+                                        _logger.LogInformation($"Storing {messagesJsonArray.Count} messages as JSON array from 'messages' property");
+                                        
+                                        // メッセージの詳細をログ出力
+                                        for (int i = 0; i < messagesJsonArray.Count; i++)
+                                        {
+                                            var msgJson = messagesJsonArray[i];
+                                            var msgType = msgJson["type"]?.ToString() ?? "unknown";
+                                            var msgText = msgJson["text"]?.ToString() ?? "";
+                                            _logger.LogInformation($"  Message {i}: Type={msgType}, Text={msgText}");
+                                        }
+                                        
                                         return new AIAgentResponse
                                         {
                                             Status = "success",
-                                            Messages = lineMessages ?? new List<LineMessage>()
+                                            MessagesJson = messagesJsonArray.ToString()
                                         };
                                     }
                                     else
                                     {
                                         // JSONだが期待される形式ではない場合、テキストとして扱う
                                         _logger.LogWarning($"Unexpected JSON format from agent: {contentText}");
+                                        var textMessageJson = new JArray
+                                        {
+                                            new JObject
+                                            {
+                                                ["type"] = "text",
+                                                ["text"] = contentText
+                                            }
+                                        };
+                                        
                                         return new AIAgentResponse
                                         {
                                             Status = "success",
-                                            Messages = new List<LineMessage>
-                                            {
-                                                new LineMessage { Type = "text", Text = contentText }
-                                            }
+                                            MessagesJson = textMessageJson.ToString()
                                         };
                                     }
                                 }
-                                catch (JsonException)
+                                catch (JsonReaderException ex)
                                 {
                                     // JSONでない場合は、通常のテキストメッセージとして扱う
-                                    _logger.LogInformation("Agent response is not JSON, treating as text message");
+                                    _logger.LogInformation($"Agent response is not JSON, treating as text message. JSON error: {ex.Message}");
+                                    var textMessageJson = new JArray
+                                    {
+                                        new JObject
+                                        {
+                                            ["type"] = "text",
+                                            ["text"] = contentText
+                                        }
+                                    };
+                                    
                                     return new AIAgentResponse
                                     {
                                         Status = "success",
-                                        Messages = new List<LineMessage>
+                                        MessagesJson = textMessageJson.ToString()
+                                    };
+                                }
+                                catch (JsonException ex)
+                                {
+                                    // JSONデシリアライゼーションエラーの場合
+                                    _logger.LogInformation($"Agent response JSON deserialization failed, treating as text message. JSON error: {ex.Message}");
+                                    var textMessageJson = new JArray
+                                    {
+                                        new JObject
                                         {
-                                            new LineMessage { Type = "text", Text = contentText }
+                                            ["type"] = "text",
+                                            ["text"] = contentText
                                         }
+                                    };
+                                    
+                                    return new AIAgentResponse
+                                    {
+                                        Status = "success",
+                                        MessagesJson = textMessageJson.ToString()
                                     };
                                 }
                             }
@@ -160,26 +218,38 @@ namespace LineBotFunctions
 
                     // 応答が見つからない場合
                     _logger.LogWarning("No assistant response found in thread");
+                    var fallbackMessageJson = new JArray
+                    {
+                        new JObject
+                        {
+                            ["type"] = "text",
+                            ["text"] = "申し訳ございません。応答の生成に失敗しました。"
+                        }
+                    };
+                    
                     return new AIAgentResponse
                     {
                         Status = "success",
-                        Messages = new List<LineMessage>
-                        {
-                            new LineMessage { Type = "text", Text = "申し訳ございません。応答の生成に失敗しました。" }
-                        }
+                        MessagesJson = fallbackMessageJson.ToString()
                     };
                 }
                 else
                 {
                     // 実行が失敗した場合
                     _logger.LogError($"AI agent run failed with status: {completedRun.Status}");
+                    var errorMessageJson = new JArray
+                    {
+                        new JObject
+                        {
+                            ["type"] = "text",
+                            ["text"] = "申し訳ございません。AIの処理に失敗しました。"
+                        }
+                    };
+                    
                     return new AIAgentResponse
                     {
                         Status = "error",
-                        Messages = new List<LineMessage>
-                        {
-                            new LineMessage { Type = "text", Text = "申し訳ございません。AIの処理に失敗しました。" }
-                        }
+                        MessagesJson = errorMessageJson.ToString()
                     };
                 }
             }
@@ -189,13 +259,19 @@ namespace LineBotFunctions
                 _logger.LogError($"Error details: {ex.Message}");
                 _logger.LogError($"Stack trace: {ex.StackTrace}");
                 
+                var exceptionMessageJson = new JArray
+                {
+                    new JObject
+                    {
+                        ["type"] = "text",
+                        ["text"] = "申し訳ございません。AI処理でエラーが発生しました。"
+                    }
+                };
+                
                 return new AIAgentResponse
                 {
                     Status = "error",
-                    Messages = new List<LineMessage>
-                    {
-                        new LineMessage { Type = "text", Text = "申し訳ございません。AI処理でエラーが発生しました。" }
-                    }
+                    MessagesJson = exceptionMessageJson.ToString()
                 };
             }
         }

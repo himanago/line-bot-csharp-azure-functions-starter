@@ -9,6 +9,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json;
 
 namespace LineBotFunctions
 {
@@ -28,7 +30,36 @@ namespace LineBotFunctions
             [ActivityTrigger] LineReplyInput input,
             [DurableClient] DurableTaskClient durableClient)
         {
-            _logger.LogInformation($"Sending LINE reply for user {input.UserId} with {input.Messages.Count} messages");
+            _logger.LogInformation($"Sending LINE reply for user {input.UserId}");
+            
+            // JSONを解析
+            JArray messagesJsonArray;
+            try 
+            {
+                messagesJsonArray = JArray.Parse(input.MessagesJson);
+                _logger.LogInformation($"Parsed {messagesJsonArray.Count} messages from JSON");
+                
+                // メッセージの詳細をログ出力
+                for (int i = 0; i < messagesJsonArray.Count; i++)
+                {
+                    var msgJson = messagesJsonArray[i];
+                    var msgType = msgJson["type"]?.ToString() ?? "unknown";
+                    var msgText = msgJson["text"]?.ToString() ?? "";
+                    _logger.LogInformation($"  Message {i}: Type={msgType}, Text={msgText}");
+                }
+            }
+            catch (JsonReaderException ex)
+            {
+                _logger.LogError(ex, "Failed to parse messages JSON, falling back to error message");
+                messagesJsonArray = new JArray
+                {
+                    new JObject
+                    {
+                        ["type"] = "text",
+                        ["text"] = "メッセージの解析に失敗しました。"
+                    }
+                };
+            }
 
             var entityId = new EntityInstanceId("LineUserReplyTokenEntity", input.UserId);
 
@@ -48,13 +79,66 @@ namespace LineBotFunctions
 
                 _logger.LogInformation($"Using reply token from entity for user {input.UserId}");
 
+                // JSONからMessageオブジェクトに変換してLINE APIに送信
+                var messages = new List<Message>();
+                
+                foreach (var msgJson in messagesJsonArray)
+                {
+                    var msgType = msgJson["type"]?.ToString();
+                    
+                    if (msgType == "text")
+                    {
+                        // TextMessageを作成
+                        var text = msgJson["text"]?.ToString() ?? "";
+                        messages.Add(new TextMessage(text));
+                        _logger.LogInformation($"Added TextMessage: {text}");
+                    }
+                    else if (msgType == "flex")
+                    {
+                        // FlexMessageを作成
+                        var altText = msgJson["altText"]?.ToString() ?? "Flex Message";
+                        var contentsJson = msgJson["contents"]?.ToString();
+                        
+                        if (!string.IsNullOrEmpty(contentsJson))
+                        {
+                            try
+                            {
+                                var flexContainer = JsonConvert.DeserializeObject<FlexContainer>(contentsJson);
+                                messages.Add(new FlexMessage(altText, flexContainer));
+                                _logger.LogInformation($"Added FlexMessage: {altText}");
+                            }
+                            catch (Exception flexEx)
+                            {
+                                _logger.LogError(flexEx, "Failed to deserialize FlexMessage, falling back to text");
+                                messages.Add(new TextMessage(altText));
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("FlexMessage missing contents, falling back to text");
+                            messages.Add(new TextMessage(altText));
+                        }
+                    }
+                    else
+                    {
+                        // 他のメッセージタイプは未対応、テキストメッセージにフォールバック
+                        _logger.LogWarning($"Unsupported message type: {msgType}, falling back to text");
+                        var fallbackText = msgJson["text"]?.ToString() ?? $"Unsupported message type: {msgType}";
+                        messages.Add(new TextMessage(fallbackText));
+                    }
+                }
+
+                if (messages.Count == 0)
+                {
+                    throw new Exception("No valid messages to send");
+                }
+
                 // LINE Messaging API でメッセージを送信
-                var lineMessages = ConvertToLineMessages(input.Messages);
-                var replyMessageRequest = new ReplyMessageRequest(replyToken, lineMessages);
+                var replyMessageRequest = new ReplyMessageRequest(replyToken, messages);
                 
                 await _messagingApi.ReplyMessageAsync(replyMessageRequest);
                 
-                _logger.LogInformation($"Successfully sent {input.Messages.Count} messages via LINE API");
+                _logger.LogInformation($"Successfully sent {messages.Count} messages via LINE API");
 
                 // 処理完了後にトークンをクリア
                 await durableClient.Entities.SignalEntityAsync(entityId, "Clear");
@@ -63,7 +147,7 @@ namespace LineBotFunctions
                 return new LineReplyResult
                 {
                     Status = "success",
-                    MessageCount = input.Messages.Count,
+                    MessageCount = messages.Count,
                     UserId = input.UserId
                 };
             }
@@ -72,27 +156,6 @@ namespace LineBotFunctions
                 _logger.LogError(ex, $"LINE reply failed for user {input.UserId}");
                 throw;
             }
-        }
-
-        private List<Message> ConvertToLineMessages(List<LineMessage> messages)
-        {
-            var lineMessages = new List<Message>();
-
-            foreach (var message in messages)
-            {
-                switch (message.Type.ToLower())
-                {
-                    case "text":
-                        lineMessages.Add(new TextMessage(message.Text));
-                        break;
-                    // 他のメッセージタイプも必要に応じて追加
-                    default:
-                        lineMessages.Add(new TextMessage(message.Text));
-                        break;
-                }
-            }
-
-            return lineMessages;
         }
     }
 }

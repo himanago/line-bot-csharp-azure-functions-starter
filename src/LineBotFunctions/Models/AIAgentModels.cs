@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using LineOpenApi.MessagingApi.Model;
 
 namespace LineBotFunctions.Models
 {
@@ -17,19 +18,15 @@ namespace LineBotFunctions.Models
     public class AIAgentResponse
     {
         public string Status { get; set; } = string.Empty;
-        public List<LineMessage> Messages { get; set; } = new List<LineMessage>();
-    }
-
-    public class LineMessage
-    {
-        public string Type { get; set; } = "text";
-        public string Text { get; set; } = string.Empty;
+        // JSONレスポンスを文字列として保持（シリアライゼーション問題を回避）
+        public string MessagesJson { get; set; } = string.Empty;
     }
 
     public class LineReplyInput
     {
         public string UserId { get; set; } = string.Empty;
-        public List<LineMessage> Messages { get; set; } = new List<LineMessage>();
+        // JSONレスポンスを文字列として受け取り
+        public string MessagesJson { get; set; } = string.Empty;
     }
 
     public class LineReplyResult

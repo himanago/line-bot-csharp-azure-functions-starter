@@ -2,6 +2,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.DurableTask;
 using Microsoft.Extensions.Logging;
 using LineBotFunctions.Models;
+using LineOpenApi.MessagingApi.Model;
 using System.Threading.Tasks;
 
 namespace LineBotFunctions
@@ -37,13 +38,13 @@ namespace LineBotFunctions
                 };
 
                 var agentResponse = await context.CallActivityAsync<AIAgentResponse>("CallAIAgentActivity", agentInput);
-                _logger.LogInformation($"AI Agent response received: {agentResponse?.Status}");
+                _logger.LogInformation($"AI Agent response received: Status={agentResponse?.Status}");
 
                 // Step 2: エンティティから最新のリプライトークンを取得してLINE返信処理
                 var replyInput = new LineReplyInput
                 {
                     UserId = input.UserId,
-                    Messages = agentResponse?.Messages ?? new System.Collections.Generic.List<LineMessage>()
+                    MessagesJson = agentResponse?.MessagesJson ?? "[]"
                 };
 
                 var replyResult = await context.CallActivityAsync<LineReplyResult>("SendLineReplyActivity", replyInput);
@@ -65,14 +66,7 @@ namespace LineBotFunctions
                 var errorReplyInput = new LineReplyInput
                 {
                     UserId = input?.UserId ?? string.Empty,
-                    Messages = new System.Collections.Generic.List<LineMessage>
-                    {
-                        new LineMessage
-                        {
-                            Type = "text",
-                            Text = "申し訳ございません。処理中にエラーが発生しました。もう一度お試しください。"
-                        }
-                    }
+                    MessagesJson = """[{"type": "text", "text": "申し訳ございません。処理中にエラーが発生しました。もう一度お試しください。"}]"""
                 };
 
                 try
