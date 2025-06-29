@@ -37,6 +37,9 @@ var host = new HostBuilder()
         // WebhookHandlerの登録
         services.AddScoped<WebhookHandler>();
 
+        // HttpClient の追加（SendLineReplyActivity用）
+        services.AddHttpClient();
+
         services.AddLogging();
     })
     .Build();

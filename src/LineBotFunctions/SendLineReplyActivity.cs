@@ -3,11 +3,10 @@ using Microsoft.DurableTask.Client;
 using Microsoft.DurableTask.Entities;
 using Microsoft.Extensions.Logging;
 using LineBotFunctions.Models;
-using LineOpenApi.MessagingApi.Api;
-using LineOpenApi.MessagingApi.Model;
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
@@ -17,12 +16,12 @@ namespace LineBotFunctions
     public class SendLineReplyActivity
     {
         private readonly ILogger<SendLineReplyActivity> _logger;
-        private readonly IMessagingApiApiAsync _messagingApi;
+        private readonly HttpClient _httpClient;
 
-        public SendLineReplyActivity(ILogger<SendLineReplyActivity> logger, IMessagingApiApiAsync messagingApi)
+        public SendLineReplyActivity(ILogger<SendLineReplyActivity> logger, HttpClient httpClient)
         {
             _logger = logger;
-            _messagingApi = messagingApi;
+            _httpClient = httpClient;
         }
 
         [Function(nameof(SendLineReplyActivity))]
@@ -79,66 +78,39 @@ namespace LineBotFunctions
 
                 _logger.LogInformation($"Using reply token from entity for user {input.UserId}");
 
-                // JSONからMessageオブジェクトに変換してLINE APIに送信
-                var messages = new List<Message>();
-                
-                foreach (var msgJson in messagesJsonArray)
+                // JSONを直接LINE Messaging APIに送信（SDKのデシリアライゼーション問題を回避）
+                var channelAccessToken = Environment.GetEnvironmentVariable("CHANNEL_ACCESS_TOKEN");
+                if (string.IsNullOrEmpty(channelAccessToken))
                 {
-                    var msgType = msgJson["type"]?.ToString();
-                    
-                    if (msgType == "text")
-                    {
-                        // TextMessageを作成
-                        var text = msgJson["text"]?.ToString() ?? "";
-                        messages.Add(new TextMessage(text));
-                        _logger.LogInformation($"Added TextMessage: {text}");
-                    }
-                    else if (msgType == "flex")
-                    {
-                        // FlexMessageを作成
-                        var altText = msgJson["altText"]?.ToString() ?? "Flex Message";
-                        var contentsJson = msgJson["contents"]?.ToString();
-                        
-                        if (!string.IsNullOrEmpty(contentsJson))
-                        {
-                            try
-                            {
-                                var flexContainer = JsonConvert.DeserializeObject<FlexContainer>(contentsJson);
-                                messages.Add(new FlexMessage(altText, flexContainer));
-                                _logger.LogInformation($"Added FlexMessage: {altText}");
-                            }
-                            catch (Exception flexEx)
-                            {
-                                _logger.LogError(flexEx, "Failed to deserialize FlexMessage, falling back to text");
-                                messages.Add(new TextMessage(altText));
-                            }
-                        }
-                        else
-                        {
-                            _logger.LogWarning("FlexMessage missing contents, falling back to text");
-                            messages.Add(new TextMessage(altText));
-                        }
-                    }
-                    else
-                    {
-                        // 他のメッセージタイプは未対応、テキストメッセージにフォールバック
-                        _logger.LogWarning($"Unsupported message type: {msgType}, falling back to text");
-                        var fallbackText = msgJson["text"]?.ToString() ?? $"Unsupported message type: {msgType}";
-                        messages.Add(new TextMessage(fallbackText));
-                    }
+                    throw new Exception("CHANNEL_ACCESS_TOKEN environment variable is not set");
                 }
 
-                if (messages.Count == 0)
+                var replyData = new JObject
                 {
-                    throw new Exception("No valid messages to send");
-                }
+                    ["replyToken"] = replyToken,
+                    ["messages"] = messagesJsonArray
+                };
 
-                // LINE Messaging API でメッセージを送信
-                var replyMessageRequest = new ReplyMessageRequest(replyToken, messages);
+                var json = replyData.ToString();
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
                 
-                await _messagingApi.ReplyMessageAsync(replyMessageRequest);
+                _httpClient.DefaultRequestHeaders.Clear();
+                _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {channelAccessToken}");
+
+                _logger.LogInformation($"Sending to LINE API: {json}");
                 
-                _logger.LogInformation($"Successfully sent {messages.Count} messages via LINE API");
+                var response = await _httpClient.PostAsync("https://api.line.me/v2/bot/message/reply", content);
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation($"Successfully sent {messagesJsonArray.Count} messages via LINE API");
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"LINE API error: {response.StatusCode}, {errorContent}");
+                    throw new Exception($"LINE API returned error: {response.StatusCode}");
+                }
 
                 // 処理完了後にトークンをクリア
                 await durableClient.Entities.SignalEntityAsync(entityId, "Clear");
@@ -147,7 +119,7 @@ namespace LineBotFunctions
                 return new LineReplyResult
                 {
                     Status = "success",
-                    MessageCount = messages.Count,
+                    MessageCount = messagesJsonArray.Count,
                     UserId = input.UserId
                 };
             }
