@@ -107,20 +107,20 @@ namespace LineBotFunctions
                                     using var document = JsonDocument.Parse(contentText.Trim());
                                     var rootElement = document.RootElement;
 
-                                    // JSONが正しい形式かチェック
-                                    if (rootElement.TryGetProperty("messages", out var messagesProperty))
+                                    // まず配列かどうかをチェック
+                                    if (rootElement.ValueKind == JsonValueKind.Array)
                                     {
-                                        var lineMessages = JsonSerializer.Deserialize<List<LineMessage>>(messagesProperty.GetRawText());
+                                        // 直接メッセージ配列の場合
+                                        var lineMessages = JsonSerializer.Deserialize<List<LineMessage>>(contentText);
                                         return new AIAgentResponse
                                         {
                                             Status = "success",
                                             Messages = lineMessages ?? new List<LineMessage>()
                                         };
                                     }
-                                    else if (rootElement.ValueKind == JsonValueKind.Array)
+                                    else if (rootElement.TryGetProperty("messages", out var messagesProperty))
                                     {
-                                        // 直接メッセージ配列の場合
-                                        var lineMessages = JsonSerializer.Deserialize<List<LineMessage>>(contentText);
+                                        var lineMessages = JsonSerializer.Deserialize<List<LineMessage>>(messagesProperty.GetRawText());
                                         return new AIAgentResponse
                                         {
                                             Status = "success",

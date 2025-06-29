@@ -51,40 +51,32 @@ namespace LineBotFunctions
             {
                 var instanceId = userId;
                 var entityId = new EntityInstanceId("LineUserReplyTokenEntity", userId);
+                var entity = await _durableClient.Entities.GetEntityAsync(entityId);
+                var tokenState = entity?.State?.ReadAs<ReplyTokenState>();
+                var oldReplyToken = tokenState?.Token;
+                _logger.LogInformation($"Entity {entityId} found with reply token: {oldReplyToken}");
 
-                // オーケストレーターの処理状態を確認
-                var orchestratorStatus = await _durableClient.GetInstanceAsync(instanceId);
-
-                if (orchestratorStatus != null && 
-                    (orchestratorStatus.RuntimeStatus == OrchestrationRuntimeStatus.Running || 
-                     orchestratorStatus.RuntimeStatus == OrchestrationRuntimeStatus.Pending))
+                // エンティティが存在する場合は古いリプライトークンを使用
+                if (!string.IsNullOrEmpty(oldReplyToken))
                 {
-                    // 既に処理中の場合：古いトークンで処理中メッセージを送信し、新しいトークンを保存
-                    _logger.LogInformation($"User {userId} already has running orchestrator, sending busy message with old token and saving new token");
-
-                    // エンティティから古いリプライトークンを取得
-                    var entity = await _durableClient.Entities.GetEntityAsync(entityId);
-                    var tokenState = entity?.State != null ? 
-                        System.Text.Json.JsonSerializer.Deserialize<ReplyTokenState>(entity.State.ToString() ?? "{}") : null;
-                    var oldReplyToken = tokenState?.Token;
-
-                    if (!string.IsNullOrEmpty(oldReplyToken))
+                    // 処理中と返信
+                    var replyMessageRequest = new ReplyMessageRequest(oldReplyToken, new List<Message>
                     {
-                        // 古いトークンを用いて処理中メッセージを送信
-                        var busyMessageRequest = new ReplyMessageRequest(oldReplyToken, new List<Message>
-                        {
-                            new TextMessage("現在、前回のリクエストを処理中です。少々お待ちください。")
-                        });
-                        await _api.ReplyMessageAsync(busyMessageRequest);
+                        new TextMessage("いま考え中なので、ちょっとまってくださいね。")
+                    });
+                    await _api.ReplyMessageAsync(replyMessageRequest);
+                    _logger.LogInformation($"Entity {entityId} found, using old reply token: {oldReplyToken}");
 
-                        // 新しいリプライトークンをエンティティに保存
-                        await _durableClient.Entities.SignalEntityAsync(entityId, "Set", replyToken);
-                    }
+                    // エンティティに新しいリプライトークンを設定
+                    await _durableClient.Entities.SignalEntityAsync(entityId, "Set", replyToken);
                     return;
                 }
 
-                // 新しいオーケストレーターを開始する前にエンティティにリプライトークンを保存
+                // エンティティに新しいリプライトークンを設定
                 await _durableClient.Entities.SignalEntityAsync(entityId, "Set", replyToken);
+
+                // オーケストレーターの処理状態を確認
+                var orchestratorStatus = await _durableClient.GetInstanceAsync(instanceId);
 
                 // オーケストレーターの入力データを準備
                 var orchestratorInput = new Models.OrchestratorInput

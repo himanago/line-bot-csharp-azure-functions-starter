@@ -36,9 +36,10 @@ namespace LineBotFunctions
             {
                 // エンティティから最新のリプライトークンを取得
                 var entity = await durableClient.Entities.GetEntityAsync(entityId);
-                var tokenState = entity?.State != null ? 
-                    System.Text.Json.JsonSerializer.Deserialize<ReplyTokenState>(entity.State.ToString() ?? "{}") : null;
+                var tokenState = entity?.State?.ReadAs<ReplyTokenState>();
                 var replyToken = tokenState?.Token;
+
+                _logger.LogInformation($"Entity {entityId} found with reply token: {replyToken}");
 
                 if (string.IsNullOrEmpty(replyToken))
                 {
@@ -55,6 +56,10 @@ namespace LineBotFunctions
                 
                 _logger.LogInformation($"Successfully sent {input.Messages.Count} messages via LINE API");
 
+                // 処理完了後にトークンをクリア
+                await durableClient.Entities.SignalEntityAsync(entityId, "Clear");
+                _logger.LogInformation($"Cleared reply token for user {input.UserId}");
+
                 return new LineReplyResult
                 {
                     Status = "success",
@@ -66,19 +71,6 @@ namespace LineBotFunctions
             {
                 _logger.LogError(ex, $"LINE reply failed for user {input.UserId}");
                 throw;
-            }
-            finally
-            {
-                // 成功・失敗に関わらず、処理完了後にトークンをクリア
-                try
-                {
-                    await durableClient.Entities.SignalEntityAsync(entityId, "Clear");
-                    _logger.LogInformation($"Cleared reply token for user {input.UserId}");
-                }
-                catch (Exception cleanupError)
-                {
-                    _logger.LogWarning(cleanupError, $"Failed to clear token for user {input.UserId}");
-                }
             }
         }
 
