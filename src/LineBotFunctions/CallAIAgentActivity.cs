@@ -63,7 +63,7 @@ namespace LineBotFunctions
 
                 _logger.LogInformation($"Sent message to AI agent thread {threadId}, message ID: {message.Id}");
 
-                // エージェントを実行
+                // エージェントを実行（リトライ機能付き）
                 var runResponse = await persistentClient.Runs.CreateRunAsync(
                     threadId,
                     assistantId: agent.Id
@@ -71,8 +71,8 @@ namespace LineBotFunctions
 
                 _logger.LogInformation($"Started AI agent run, run ID: {runResponse.Value.Id}");
 
-                // 実行完了まで待機（ポーリング）
-                var completedRun = await WaitForRunCompletionAsync(persistentClient, threadId, runResponse.Value.Id);
+                // 実行完了まで待機（ポーリング）- リトライ機能付き
+                var completedRun = await WaitForRunCompletionWithRetryAsync(persistentClient, threadId, runResponse.Value.Id, agent.Id);
                 _logger.LogInformation($"AI agent run completed, run ID: {completedRun.Id}, status: {completedRun.Status}");
 
                 if (completedRun.Status == RunStatus.Completed)
@@ -305,6 +305,75 @@ namespace LineBotFunctions
             }
 
             throw new TimeoutException($"AI agent run {runId} did not complete within {maxWaitTime.TotalMinutes} minutes");
+        }
+
+        private async Task<ThreadRun> WaitForRunCompletionWithRetryAsync(PersistentAgentsClient persistentClient, string threadId, string runId, string assistantId)
+        {
+            const int maxRetries = 2; // 最大2回リトライ（合計3回実行）
+            ThreadRun? completedRun = null;
+            string currentRunId = runId;
+            
+            for (int attempt = 0; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    completedRun = await WaitForRunCompletionAsync(persistentClient, threadId, currentRunId);
+                    
+                    if (completedRun.Status == RunStatus.Completed)
+                    {
+                        if (attempt > 0)
+                        {
+                            _logger.LogInformation($"AI agent run succeeded on attempt {attempt + 1}");
+                        }
+                        return completedRun;
+                    }
+                    else if (completedRun.Status == RunStatus.Failed && attempt < maxRetries)
+                    {
+                        _logger.LogWarning($"AI agent run failed on attempt {attempt + 1}, retrying...");
+                        
+                        // 新しいRunを作成してリトライ
+                        var retryRunResponse = await persistentClient.Runs.CreateRunAsync(threadId, assistantId: assistantId);
+                        currentRunId = retryRunResponse.Value.Id;
+                        _logger.LogInformation($"Created retry run, run ID: {currentRunId}");
+                        
+                        // 少し待ってからリトライ
+                        await Task.Delay(TimeSpan.FromSeconds(1));
+                    }
+                    else
+                    {
+                        // 最終試行でも失敗、またはキャンセル/期限切れの場合
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (attempt < maxRetries)
+                    {
+                        _logger.LogWarning(ex, $"Exception during AI agent run attempt {attempt + 1}, retrying...");
+                        
+                        // 新しいRunを作成してリトライ
+                        try
+                        {
+                            var retryRunResponse = await persistentClient.Runs.CreateRunAsync(threadId, assistantId: assistantId);
+                            currentRunId = retryRunResponse.Value.Id;
+                            _logger.LogInformation($"Created retry run after exception, run ID: {currentRunId}");
+                            await Task.Delay(TimeSpan.FromSeconds(1));
+                        }
+                        catch (Exception retryEx)
+                        {
+                            _logger.LogError(retryEx, $"Failed to create retry run on attempt {attempt + 1}");
+                            throw;
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogError(ex, $"AI agent run failed on final attempt {attempt + 1}");
+                        throw;
+                    }
+                }
+            }
+            
+            return completedRun ?? throw new InvalidOperationException("Run completion failed after all retry attempts");
         }
 
         private async Task<string> GetOrCreateUserThreadAsync(PersistentAgentsClient persistentClient, DurableTaskClient durableClient, string userId)
