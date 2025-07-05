@@ -123,10 +123,13 @@ namespace LineBotFunctions
                             {
                                 _logger.LogInformation($"Agent response content: {contentText}");
 
+                                // Markdownコードブロックを除去してからJSON解析
+                                var cleanedContent = CleanJsonResponse(contentText);
+
                                 try
                                 {
                                     // JSONとして解析を試行（Newtonsoft.Jsonを使用）
-                                    var jsonObject = JToken.Parse(contentText.Trim());
+                                    var jsonObject = JToken.Parse(cleanedContent);
 
                                     // まず配列かどうかをチェック
                                     if (jsonObject.Type == JTokenType.Array)
@@ -177,13 +180,13 @@ namespace LineBotFunctions
                                     else
                                     {
                                         // JSONだが期待される形式ではない場合、テキストとして扱う
-                                        _logger.LogWarning($"Unexpected JSON format from agent: {contentText}");
+                                        _logger.LogWarning($"Unexpected JSON format from agent: {cleanedContent}");
                                         var textMessageJson = new JArray
                                         {
                                             new JObject
                                             {
                                                 ["type"] = "text",
-                                                ["text"] = contentText
+                                                ["text"] = cleanedContent
                                             }
                                         };
                                         
@@ -203,7 +206,7 @@ namespace LineBotFunctions
                                         new JObject
                                         {
                                             ["type"] = "text",
-                                            ["text"] = contentText
+                                            ["text"] = cleanedContent
                                         }
                                     };
                                     
@@ -222,7 +225,7 @@ namespace LineBotFunctions
                                         new JObject
                                         {
                                             ["type"] = "text",
-                                            ["text"] = contentText
+                                            ["text"] = cleanedContent
                                         }
                                     };
                                     
@@ -467,6 +470,22 @@ namespace LineBotFunctions
                 var message = messageResponse.Value;
                 _logger.LogInformation($"Sent fallback text message to AI agent thread {threadId}, message ID: {message.Id}");
             }
+        }
+
+        private string CleanJsonResponse(string jsonResponse)
+        {
+            if (string.IsNullOrEmpty(jsonResponse))
+                return jsonResponse;
+
+            // ```json と ``` を除去
+            var cleaned = jsonResponse
+                .Replace("```json", "")
+                .Replace("```", "")
+                .Trim();
+
+            _logger.LogInformation($"Cleaned AI agent response: Original length={jsonResponse.Length}, Cleaned length={cleaned.Length}");
+            
+            return cleaned;
         }
     }
 }
